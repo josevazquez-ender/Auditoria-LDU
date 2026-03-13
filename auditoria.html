@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auditoría con Validación GPS</title>
+    <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen pb-10">
+
+    <div class="max-w-lg mx-auto bg-white shadow-2xl min-h-screen md:min-h-fit md:mt-10 md:rounded-2xl overflow-hidden">
+        <div class="bg-red-600 p-6 text-white">
+            <h1 class="text-xl font-bold text-center">Auditoría de Inventario</h1>
+            <p class="text-red-100 text-xs text-center mt-1">Es obligatorio tener el GPS activado en la cámara</p>
+        </div>
+
+        <div class="p-6 space-y-6">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="col-span-2">
+                    <label class="block text-xs font-bold text-gray-500 uppercase">Nombre del Promotor</label>
+                    <input type="text" id="nombre" class="w-full border-b-2 border-gray-200 py-2 outline-none focus:border-red-500 transition" placeholder="Nombre completo">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase">ID Honor</label>
+                    <input type="text" id="idHonor" class="w-full border-b-2 border-gray-200 py-2 outline-none focus:border-red-500 transition" placeholder="ID">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase">Región</label>
+                    <input type="text" id="region" class="w-full border-b-2 border-gray-200 py-2 outline-none focus:border-red-500 transition" placeholder="Zona">
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-xs font-bold text-gray-500 uppercase">Sucursal</label>
+                    <input type="text" id="sucursal" class="w-full border-b-2 border-gray-200 py-2 outline-none focus:border-red-500 transition" placeholder="Nombre sucursal">
+                </div>
+            </div>
+
+            <hr>
+
+            <div class="space-y-3">
+                <label class="block text-sm font-bold text-gray-700 italic">Validación Geográfica Obligatoria:</label>
+                <label id="dropzone" class="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-red-200 rounded-xl cursor-pointer bg-red-50 hover:bg-red-100 transition relative overflow-hidden text-center p-4">
+                    <div id="uploadPrompt" class="flex flex-col items-center">
+                        <svg class="w-10 h-10 text-red-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        <span class="text-red-700 font-medium">Capturar Foto con GPS</span>
+                    </div>
+                    <img id="preview" class="absolute inset-0 w-full h-full object-cover hidden">
+                    <input type="file" id="foto" accept="image/*" capture="environment" class="hidden">
+                </label>
+            </div>
+
+            <div id="gpsError" class="hidden p-3 bg-red-100 text-red-700 text-xs rounded-lg font-bold">
+                ⚠️ ERROR: La foto no contiene coordenadas GPS. Asegúrese de tener activa la "Etiqueta de ubicación" en los ajustes de su cámara e intente de nuevo.
+            </div>
+
+            <button id="btnEnviar" disabled class="w-full bg-gray-400 text-white font-bold py-4 rounded-xl shadow-lg transition-all">
+                ENVIAR REPORTE
+            </button>
+            
+            <p id="status" class="text-center text-sm font-medium hidden"></p>
+        </div>
+    </div>
+
+    <script>
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxGe5NRflmghfaX2x3jYUDhTqyoo-DoqFgWt_Z1ZhUKsPLRAyS_4d_pVx43VjBnKcxbUg/exec"; // REEMPLAZA ESTO
+        let metaDataExtraida = null;
+
+        document.getElementById('foto').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const errorDiv = document.getElementById('gpsError');
+            const preview = document.getElementById('preview');
+            const prompt = document.getElementById('uploadPrompt');
+            const btn = document.getElementById('btnEnviar');
+
+            if (!file) return;
+
+            // Procesar EXIF antes de mostrar nada
+            EXIF.getData(file, function() {
+                const tags = EXIF.getAllTags(this);
+                
+                // VALIDACIÓN CRÍTICA DE GPS
+                if (!tags.GPSLatitude || !tags.GPSLongitude) {
+                    // Falló la validación
+                    errorDiv.classList.remove('hidden');
+                    preview.classList.add('hidden');
+                    prompt.classList.remove('hidden');
+                    btn.disabled = true;
+                    btn.classList.replace('bg-green-600', 'bg-gray-400');
+                    alert("FOTO RECHAZADA: No tiene ubicación GPS. Activa el GPS de tu cámara.");
+                    return;
+                }
+
+                // Si tiene GPS, procedemos
+                errorDiv.classList.add('hidden');
+                
+                // Mostrar vista previa
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.src = e.target.result;
+                    preview.classList.remove('hidden');
+                    prompt.classList.add('hidden');
+                };
+                reader.readAsDataURL(file);
+
+                const lat = formatGPS(tags.GPSLatitude, tags.GPSLatitudeRef);
+                const lon = formatGPS(tags.GPSLongitude, tags.GPSLongitudeRef);
+
+                metaDataExtraida = {
+                    marca: tags.Make || "Desconocida",
+                    modelo: tags.Model || "Desconocido",
+                    fechaCaptura: tags.DateTime || "Sin fecha",
+                    latitud: lat,
+                    longitud: lon,
+                    mapa: `https://www.google.com/maps?q=${lat},${lon}`
+                };
+
+                btn.disabled = false;
+                btn.classList.replace('bg-gray-400', 'bg-green-600');
+            });
+        });
+
+        document.getElementById('btnEnviar').onclick = async function() {
+            const btn = this;
+            const status = document.getElementById('status');
+            
+            const payload = {
+                promotor: document.getElementById('nombre').value,
+                idHonor: document.getElementById('idHonor').value,
+                region: document.getElementById('region').value,
+                sucursal: document.getElementById('sucursal').value,
+                ...metaDataExtraida
+            };
+
+            if(!payload.promotor || !payload.idHonor) {
+                alert("Completa tus datos personales."); return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = "PROCESANDO...";
+            status.classList.remove('hidden');
+            status.innerText = "Registrando auditoría...";
+
+            try {
+                await fetch(WEB_APP_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: JSON.stringify(payload)
+                });
+                alert("✅ Reporte validado y enviado.");
+                location.reload(); // Reiniciar formulario
+            } catch (e) {
+                alert("Error de conexión");
+                btn.disabled = false;
+            }
+        };
+
+        function formatGPS(coords, ref) {
+            const deg = coords[0].numerator / coords[0].denominator +
+                        (coords[1].numerator / coords[1].denominator) / 60 +
+                        (coords[2].numerator / coords[2].denominator) / 3600;
+            return (ref === "S" || ref === "W" ? -deg : deg).toFixed(6);
+        }
+    </script>
+</body>
+</html>
